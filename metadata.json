@@ -1,0 +1,6 @@
+{
+  "name": "Clash Tracker",
+  "description": "Clash of Clans Building Management App with CRUD operations, town hall progression, and Google Search Grounding for real-time maximum building level synchronization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
