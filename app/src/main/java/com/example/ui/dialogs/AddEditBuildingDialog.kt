@@ -31,7 +31,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,14 +59,12 @@ import com.example.ui.theme.TextSecondary
 fun AddEditBuildingDialog(
     buildingToEdit: BuildingEntity? = null,
     availableTypes: List<BuildingTypeEntity>,
-    onSave: (typeId: Long, name: String, currentLevel: Int, maxLevel: Int, notes: String) -> Unit,
+    onSave: (typeId: Long, name: String, notes: String) -> Unit,
     onDismiss: () -> Unit
 ) {
     val initialTypeId = buildingToEdit?.typeId ?: (availableTypes.firstOrNull()?.id ?: 1L)
     var selectedTypeId by remember { mutableLongStateOf(initialTypeId) }
     var name by remember { mutableStateOf(buildingToEdit?.name ?: "") }
-    var currentLevel by remember { mutableIntStateOf(buildingToEdit?.currentLevel ?: 1) }
-    var maxLevel by remember { mutableIntStateOf(buildingToEdit?.maxLevel ?: 1) }
     var notes by remember { mutableStateOf(buildingToEdit?.notes ?: "") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var typeDropdownExpanded by remember { mutableStateOf(false) }
@@ -105,10 +102,10 @@ fun AddEditBuildingDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                // Building Type Dropdown
-                Text("Building Category", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                // Building Type Dropdown (Category)
+                Text("Category", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                 Spacer(modifier = Modifier.height(4.dp))
                 Box(modifier = Modifier.fillMaxWidth()) {
                     Box(
@@ -141,7 +138,7 @@ fun AddEditBuildingDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 // Building Name
                 Text("Building Name", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
@@ -167,50 +164,16 @@ fun AddEditBuildingDialog(
                         .testTag("building_name_input")
                 )
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                // Level Controls Row
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    // Current Level
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Current Level", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        LevelStepper(
-                            value = currentLevel,
-                            minValue = 1,
-                            maxValue = maxLevel,
-                            onValueChange = { currentLevel = it },
-                            testTagPrefix = "current_level"
-                        )
-                    }
-
-                    // Maximum Level
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Maximum Level", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        LevelStepper(
-                            value = maxLevel,
-                            minValue = 1,
-                            maxValue = 30,
-                            onValueChange = {
-                                maxLevel = it
-                                if (currentLevel > maxLevel) currentLevel = maxLevel
-                            },
-                            testTagPrefix = "max_level"
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Notes
-                Text("Notes (Optional)", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                // Notes (Optional)
+                Text("Note (Optional)", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                 Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(
                     value = notes,
                     onValueChange = { notes = it },
-                    placeholder = { Text("e.g. Air & Ground mode", color = TextMuted) },
-                    maxLines = 2,
+                    placeholder = { Text("e.g. Set to Air & Ground mode", color = TextMuted) },
+                    maxLines = 3,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = BluePrimary,
                         unfocusedBorderColor = LightBorder,
@@ -234,7 +197,7 @@ fun AddEditBuildingDialog(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
                 // Action Buttons
                 Row(
@@ -256,11 +219,7 @@ fun AddEditBuildingDialog(
                                 errorMessage = "Please enter a building name."
                                 return@Button
                             }
-                            if (currentLevel > maxLevel) {
-                                errorMessage = "Current level cannot exceed maximum level."
-                                return@Button
-                            }
-                            onSave(selectedTypeId, name.trim(), currentLevel, maxLevel, notes.trim())
+                            onSave(selectedTypeId, name.trim(), notes.trim())
                         },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = BluePrimary,

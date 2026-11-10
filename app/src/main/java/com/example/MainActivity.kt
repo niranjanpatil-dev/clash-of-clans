@@ -423,16 +423,14 @@ fun ClashApp(viewModel: ClashViewModel = viewModel()) {
         AddEditBuildingDialog(
             buildingToEdit = buildingToEdit,
             availableTypes = uiState.buildingTypes,
-            onSave = { typeId, name, cur, max, notes ->
+            onSave = { typeId, name, notes ->
                 if (buildingToEdit == null) {
-                    viewModel.addBuilding(typeId, name, cur, max, notes)
+                    viewModel.addBuilding(typeId, name, 1, 1, notes)
                 } else {
                     viewModel.updateBuilding(
                         buildingToEdit!!.copy(
                             typeId = typeId,
                             name = name,
-                            currentLevel = cur,
-                            maxLevel = max,
                             notes = notes
                         )
                     )
