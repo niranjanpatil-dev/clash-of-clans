@@ -17,6 +17,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowForward
@@ -35,14 +37,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.entity.BuildingEntity
@@ -239,8 +248,11 @@ fun ScheduleUpgradeDialog(
                         DurationColumn(
                             label = "DAYS",
                             value = days,
+                            onValueChange = { days = it },
                             onDec = { if (days > 0) days-- },
                             onInc = { if (days < 30) days++ },
+                            minValue = 0,
+                            maxValue = 30,
                             testTag = "days"
                         )
 
@@ -248,8 +260,11 @@ fun ScheduleUpgradeDialog(
                         DurationColumn(
                             label = "HOURS",
                             value = hours,
+                            onValueChange = { hours = it },
                             onDec = { if (hours > 0) hours-- },
                             onInc = { if (hours < 23) hours++ },
+                            minValue = 0,
+                            maxValue = 23,
                             testTag = "hours"
                         )
 
@@ -257,8 +272,11 @@ fun ScheduleUpgradeDialog(
                         DurationColumn(
                             label = "MINUTES",
                             value = minutes,
+                            onValueChange = { minutes = it },
                             onDec = { if (minutes > 0) minutes-- },
                             onInc = { if (minutes < 59) minutes++ },
+                            minValue = 0,
+                            maxValue = 59,
                             testTag = "minutes"
                         )
                     }
@@ -409,15 +427,25 @@ fun ScheduleUpgradeDialog(
 private fun DurationColumn(
     label: String,
     value: Int,
+    onValueChange: (Int) -> Unit,
     onDec: () -> Unit,
     onInc: () -> Unit,
+    minValue: Int = 0,
+    maxValue: Int = 59,
     testTag: String
 ) {
+    var textValue by remember(value) { mutableStateOf(value.toString()) }
+    var isFocused by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
             .background(SlateSecondaryContainer)
-            .border(1.dp, LightBorder, RoundedCornerShape(8.dp))
+            .border(
+                1.dp,
+                if (isFocused) BluePrimary else LightBorder,
+                RoundedCornerShape(8.dp)
+            )
             .padding(vertical = 6.dp, horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -434,6 +462,7 @@ private fun DurationColumn(
         ) {
             IconButton(
                 onClick = onDec,
+                enabled = value > minValue,
                 modifier = Modifier
                     .size(24.dp)
                     .testTag("dec_$testTag")
@@ -441,19 +470,61 @@ private fun DurationColumn(
                 Icon(
                     Icons.Default.Remove,
                     contentDescription = "Decrease $label",
-                    tint = TextPrimary,
+                    tint = if (value > minValue) TextPrimary else TextMuted,
                     modifier = Modifier.size(12.dp)
                 )
             }
-            Text(
-                text = "$value",
-                color = BluePrimary,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 14.sp,
-                modifier = Modifier.padding(horizontal = 4.dp)
-            )
+
+            Box(
+                modifier = Modifier
+                    .width(32.dp)
+                    .padding(horizontal = 2.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                BasicTextField(
+                    value = textValue,
+                    onValueChange = { input: String ->
+                        val digits = input.filter { it.isDigit() }.take(2)
+                        textValue = digits
+                        val parsed = digits.toIntOrNull()
+                        if (parsed != null) {
+                            onValueChange(parsed.coerceIn(minValue, maxValue))
+                        }
+                    },
+                    textStyle = TextStyle(
+                        color = BluePrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        textAlign = TextAlign.Center
+                    ),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Done
+                    ),
+                    singleLine = true,
+                    cursorBrush = SolidColor(BluePrimary),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { focusState ->
+                            isFocused = focusState.isFocused
+                            if (!focusState.isFocused) {
+                                val parsed = textValue.toIntOrNull()
+                                if (parsed == null) {
+                                    textValue = value.toString()
+                                } else {
+                                    val clamped = parsed.coerceIn(minValue, maxValue)
+                                    textValue = clamped.toString()
+                                    onValueChange(clamped)
+                                }
+                            }
+                        }
+                        .testTag("input_$testTag")
+                )
+            }
+
             IconButton(
                 onClick = onInc,
+                enabled = value < maxValue,
                 modifier = Modifier
                     .size(24.dp)
                     .testTag("inc_$testTag")
@@ -461,7 +532,7 @@ private fun DurationColumn(
                 Icon(
                     Icons.Default.Add,
                     contentDescription = "Increase $label",
-                    tint = TextPrimary,
+                    tint = if (value < maxValue) TextPrimary else TextMuted,
                     modifier = Modifier.size(12.dp)
                 )
             }

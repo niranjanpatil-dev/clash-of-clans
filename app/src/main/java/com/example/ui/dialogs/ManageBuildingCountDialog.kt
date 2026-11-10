@@ -14,10 +14,13 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
@@ -37,14 +40,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.entity.BuildingEntity
@@ -114,9 +125,9 @@ fun ManageBuildingCountDialog(
                         fontSize = 17.sp
                     )
                     Text(
-                        text = building.name,
+                        text = "${building.name} • Tap numbers to edit with keyboard",
                         color = BluePrimary,
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -133,7 +144,7 @@ fun ManageBuildingCountDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // Total Count Stepper Card
+                    // Total Count Stepper Card (Tap to edit with keyboard)
                     Column(
                         modifier = Modifier
                             .weight(1f)
@@ -151,48 +162,20 @@ fun ManageBuildingCountDialog(
                             letterSpacing = 0.5.sp
                         )
                         Spacer(modifier = Modifier.height(6.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            IconButton(
-                                onClick = { if (totalCount > 1) totalCount-- },
-                                enabled = totalCount > 1,
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .testTag("total_count_dec")
-                            ) {
-                                Icon(
-                                    Icons.Default.Remove,
-                                    contentDescription = "Decrease count",
-                                    tint = if (totalCount > 1) TextPrimary else TextMuted,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                            Text(
-                                text = "$totalCount",
-                                color = BluePrimary,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 18.sp,
-                                modifier = Modifier.padding(horizontal = 8.dp)
-                            )
-                            IconButton(
-                                onClick = { totalCount++ },
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .testTag("total_count_inc")
-                            ) {
-                                Icon(
-                                    Icons.Default.Add,
-                                    contentDescription = "Increase count",
-                                    tint = TextPrimary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
+                        TapToEditStepper(
+                            value = totalCount,
+                            onValueChange = { totalCount = it },
+                            minValue = 1,
+                            maxValue = 999,
+                            testTag = "total_count",
+                            textColor = BluePrimary,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            fieldWidth = 44.dp
+                        )
                     }
 
-                    // Max Level Stepper Card
+                    // Max Level Stepper Card (Tap to edit with keyboard)
                     Column(
                         modifier = Modifier
                             .weight(1f)
@@ -210,45 +193,17 @@ fun ManageBuildingCountDialog(
                             letterSpacing = 0.5.sp
                         )
                         Spacer(modifier = Modifier.height(6.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            IconButton(
-                                onClick = { if (maxLevel > 1) maxLevel-- },
-                                enabled = maxLevel > 1,
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .testTag("max_level_dec")
-                            ) {
-                                Icon(
-                                    Icons.Default.Remove,
-                                    contentDescription = "Decrease max level",
-                                    tint = if (maxLevel > 1) TextPrimary else TextMuted,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                            Text(
-                                text = "$maxLevel",
-                                color = TextPrimary,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 18.sp,
-                                modifier = Modifier.padding(horizontal = 8.dp)
-                            )
-                            IconButton(
-                                onClick = { maxLevel++ },
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .testTag("max_level_inc")
-                            ) {
-                                Icon(
-                                    Icons.Default.Add,
-                                    contentDescription = "Increase max level",
-                                    tint = TextPrimary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
+                        TapToEditStepper(
+                            value = maxLevel,
+                            onValueChange = { maxLevel = it },
+                            minValue = 1,
+                            maxValue = 99,
+                            testTag = "max_level",
+                            textColor = TextPrimary,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            fieldWidth = 44.dp
+                        )
                     }
                 }
 
@@ -327,14 +282,13 @@ fun ManageBuildingCountDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Level Breakdown",
+                        text = "Level Breakdown (Tap # to Type)",
                         color = TextPrimary,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp
                     )
                     OutlinedButton(
                         onClick = {
-                            // Find next available level not in list, or default to level 1
                             val existingLevels = distributionRows.map { it.level }.toSet()
                             val nextLv = (1..maxLevel).firstOrNull { it !in existingLevels } ?: 1
                             distributionRows.add(LevelCount(level = nextLv, count = 1))
@@ -358,7 +312,7 @@ fun ManageBuildingCountDialog(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 220.dp),
+                        .heightIn(max = 230.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     itemsIndexed(distributionRows) { index, item ->
@@ -372,7 +326,7 @@ fun ManageBuildingCountDialog(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            // Level Picker Controls
+                            // Level Picker Controls (Tap to edit with keyboard)
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     text = "Level",
@@ -381,46 +335,24 @@ fun ManageBuildingCountDialog(
                                     fontWeight = FontWeight.Medium
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Row(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(SlateSecondaryContainer)
-                                        .padding(horizontal = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    IconButton(
-                                        onClick = {
-                                            if (item.level > 1) {
-                                                distributionRows[index] = item.copy(level = item.level - 1)
-                                            }
-                                        },
-                                        enabled = item.level > 1,
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(Icons.Default.Remove, contentDescription = null, modifier = Modifier.size(12.dp))
-                                    }
-                                    Text(
-                                        text = "${item.level}",
-                                        color = TextPrimary,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp,
-                                        modifier = Modifier.padding(horizontal = 4.dp)
-                                    )
-                                    IconButton(
-                                        onClick = {
-                                            if (item.level < maxLevel) {
-                                                distributionRows[index] = item.copy(level = item.level + 1)
-                                            }
-                                        },
-                                        enabled = item.level < maxLevel,
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(12.dp))
-                                    }
-                                }
+                                TapToEditStepper(
+                                    value = item.level,
+                                    onValueChange = { newLv ->
+                                        distributionRows[index] = item.copy(level = newLv)
+                                    },
+                                    minValue = 1,
+                                    maxValue = maxLevel,
+                                    testTag = "row_level_$index",
+                                    textColor = TextPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fieldWidth = 32.dp,
+                                    btnSize = 24.dp,
+                                    iconSize = 12.dp
+                                )
                             }
 
-                            // Instance Count Stepper Controls
+                            // Instance Count Stepper Controls (Tap to edit with keyboard)
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     text = "Qty",
@@ -429,40 +361,21 @@ fun ManageBuildingCountDialog(
                                     fontWeight = FontWeight.Medium
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Row(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(SlateSecondaryContainer)
-                                        .padding(horizontal = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    IconButton(
-                                        onClick = {
-                                            if (item.count > 1) {
-                                                distributionRows[index] = item.copy(count = item.count - 1)
-                                            }
-                                        },
-                                        enabled = item.count > 1,
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(Icons.Default.Remove, contentDescription = null, modifier = Modifier.size(12.dp))
-                                    }
-                                    Text(
-                                        text = "${item.count}",
-                                        color = BluePrimary,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 12.sp,
-                                        modifier = Modifier.padding(horizontal = 4.dp)
-                                    )
-                                    IconButton(
-                                        onClick = {
-                                            distributionRows[index] = item.copy(count = item.count + 1)
-                                        },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(12.dp))
-                                    }
-                                }
+                                TapToEditStepper(
+                                    value = item.count,
+                                    onValueChange = { newCount ->
+                                        distributionRows[index] = item.copy(count = newCount)
+                                    },
+                                    minValue = 1,
+                                    maxValue = 999,
+                                    testTag = "row_qty_$index",
+                                    textColor = BluePrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fieldWidth = 32.dp,
+                                    btnSize = 24.dp,
+                                    iconSize = 12.dp
+                                )
 
                                 Spacer(modifier = Modifier.width(6.dp))
 
@@ -514,4 +427,129 @@ fun ManageBuildingCountDialog(
         },
         containerColor = LightSurface
     )
+}
+
+/**
+ * Reusable stepper component that displays:
+ * - Decrement button (-)
+ * - Tap-to-edit numeric field with keyboard input
+ * - Increment button (+)
+ */
+@Composable
+fun TapToEditStepper(
+    value: Int,
+    onValueChange: (Int) -> Unit,
+    minValue: Int = 1,
+    maxValue: Int = 999,
+    testTag: String,
+    textColor: Color = BluePrimary,
+    fontSize: TextUnit = 16.sp,
+    fontWeight: FontWeight = FontWeight.Bold,
+    fieldWidth: androidx.compose.ui.unit.Dp = 38.dp,
+    btnSize: androidx.compose.ui.unit.Dp = 28.dp,
+    iconSize: androidx.compose.ui.unit.Dp = 14.dp,
+    modifier: Modifier = Modifier
+) {
+    var textValue by remember(value) { mutableStateOf(value.toString()) }
+    var isFocused by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(SlateSecondaryContainer)
+            .border(
+                1.dp,
+                if (isFocused) BluePrimary else LightBorder,
+                RoundedCornerShape(8.dp)
+            )
+            .padding(horizontal = 2.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        // Minus / Decrement Button (-ve sign)
+        IconButton(
+            onClick = {
+                val newVal = (value - 1).coerceAtLeast(minValue)
+                textValue = newVal.toString()
+                onValueChange(newVal)
+            },
+            enabled = value > minValue,
+            modifier = Modifier
+                .size(btnSize)
+                .testTag("${testTag}_dec")
+        ) {
+            Icon(
+                imageVector = Icons.Default.Remove,
+                contentDescription = "Decrease",
+                tint = if (value > minValue) TextPrimary else TextMuted,
+                modifier = Modifier.size(iconSize)
+            )
+        }
+
+        // Tap-to-edit editable number with keyboard
+        Box(
+            modifier = Modifier
+                .widthIn(min = fieldWidth)
+                .padding(horizontal = 4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            BasicTextField(
+                value = textValue,
+                onValueChange = { input ->
+                    val digits = input.filter { it.isDigit() }.take(4)
+                    textValue = digits
+                    val parsed = digits.toIntOrNull()
+                    if (parsed != null) {
+                        val clamped = parsed.coerceIn(minValue, maxValue)
+                        onValueChange(clamped)
+                    }
+                },
+                textStyle = TextStyle(
+                    color = textColor,
+                    fontSize = fontSize,
+                    fontWeight = fontWeight,
+                    textAlign = TextAlign.Center
+                ),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number,
+                    imeAction = ImeAction.Done
+                ),
+                singleLine = true,
+                cursorBrush = SolidColor(BluePrimary),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { focusState ->
+                        isFocused = focusState.isFocused
+                        if (!focusState.isFocused) {
+                            val parsed = textValue.toIntOrNull()
+                            if (parsed == null || parsed < minValue) {
+                                textValue = maxOf(minValue, value).toString()
+                                onValueChange(maxOf(minValue, value))
+                            }
+                        }
+                    }
+                    .testTag("${testTag}_input")
+            )
+        }
+
+        // Plus / Increment Button (+ve sign)
+        IconButton(
+            onClick = {
+                val newVal = (value + 1).coerceAtMost(maxValue)
+                textValue = newVal.toString()
+                onValueChange(newVal)
+            },
+            enabled = value < maxValue,
+            modifier = Modifier
+                .size(btnSize)
+                .testTag("${testTag}_inc")
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = "Increase",
+                tint = if (value < maxValue) TextPrimary else TextMuted,
+                modifier = Modifier.size(iconSize)
+            )
+        }
+    }
 }
