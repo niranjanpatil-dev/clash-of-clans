@@ -18,20 +18,27 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apartment
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Dangerous
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -41,7 +48,11 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,9 +62,11 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.entity.ActiveUpgradeEntity
 import com.example.data.entity.BuildingEntity
 import com.example.data.entity.BuildingTypeEntity
 import com.example.ui.ClashUiState
+import kotlinx.coroutines.delay
 import com.example.ui.theme.AmberContainer
 import com.example.ui.theme.AmberPending
 import com.example.ui.theme.BlueOnPrimaryContainer
@@ -80,14 +93,55 @@ fun DashboardScreen(
     onTriggerSync: () -> Unit,
     onNavigateToTownHalls: () -> Unit,
     onNavigateToBuildings: (typeId: Long?) -> Unit,
+    onScheduleUpgrade: (BuildingEntity) -> Unit = {},
+    onFinishUpgrade: (ActiveUpgradeEntity) -> Unit = {},
+    onCancelUpgrade: (ActiveUpgradeEntity) -> Unit = {},
     onAddBuildingClick: () -> Unit = {},
     onAddCategoryClick: () -> Unit = {}
 ) {
     val buildings = uiState.buildings
     val types = uiState.buildingTypes
     val activeTh = uiState.activeTownHall
+    val activeUpgrades = uiState.activeUpgrades
+
+    val typeMap = remember(types) { types.associateBy { it.id } }
+
+    var currentTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1000L)
+            currentTime = System.currentTimeMillis()
+        }
+    }
+
+    // Recommended Upgrades sorted primarily by Category Priority (1 before 2)
+    val recommendedBuildings = remember(buildings, typeMap, activeUpgrades) {
+        val activeBuildingIds = activeUpgrades.map { it.buildingId }.toSet()
+        buildings
+            .filter { building ->
+                val isMaxed = building.maxLevel > 0 && building.currentLevel >= building.maxLevel &&
+                    building.parseLevelDistributions().all { it.level >= building.maxLevel }
+                !isMaxed && building.maxLevel > 0
+            }
+            .sortedWith(
+                compareBy<BuildingEntity> { building ->
+                    // 1. Category Priority: Lower number = Higher priority (1 before 2)
+                    typeMap[building.typeId]?.priority ?: 999
+                }
+                .thenBy { building ->
+                    // 2. Prioritize non-active upgrades
+                    if (building.id in activeBuildingIds) 1 else 0
+                }
+                .thenBy { building ->
+                    // 3. Lowest progress first
+                    if (building.maxLevel > 0) building.currentLevel.toFloat() / building.maxLevel.toFloat() else 0f
+                }
+                .thenBy { building -> building.name }
+            )
+    }
 
     val totalBuildings = buildings.size
+    val totalInstances = buildings.sumOf { it.totalCount }
     val completedBuildings = buildings.count { it.currentLevel >= it.maxLevel && it.maxLevel > 0 }
     val pendingBuildings = totalBuildings - completedBuildings
 
@@ -126,6 +180,30 @@ fun DashboardScreen(
                 village = uiState.village,
                 onChangeTownHall = onNavigateToTownHalls
             )
+        }
+
+        // Active Upgrades Ticking Widget (If any upgrades are running)
+        if (activeUpgrades.isNotEmpty()) {
+            item {
+                ActiveUpgradesSection(
+                    upgrades = activeUpgrades,
+                    currentTime = currentTime,
+                    onFinish = onFinishUpgrade,
+                    onCancel = onCancelUpgrade
+                )
+            }
+        }
+
+        // Recommended Upgrades Section (Ranked by Category Priority: 1 > 2 > 3)
+        if (buildings.isNotEmpty()) {
+            item {
+                RecommendedUpgradesSection(
+                    recommendedBuildings = recommendedBuildings,
+                    typeMap = typeMap,
+                    activeUpgrades = activeUpgrades,
+                    onScheduleUpgrade = onScheduleUpgrade
+                )
+            }
         }
 
         // Overall Progress Metric Card
@@ -629,3 +707,531 @@ fun CategoryProgressCard(
         }
     }
 }
+
+@Composable
+fun ActiveUpgradesSection(
+    upgrades: List<ActiveUpgradeEntity>,
+    currentTime: Long,
+    onFinish: (ActiveUpgradeEntity) -> Unit,
+    onCancel: (ActiveUpgradeEntity) -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("active_upgrades_section"),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = LightSurface),
+        border = androidx.compose.foundation.BorderStroke(1.dp, BluePrimary.copy(alpha = 0.3f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(BluePrimaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.HourglassTop,
+                            contentDescription = null,
+                            tint = BluePrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "ACTIVE UPGRADES",
+                            color = BluePrimary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                        Text(
+                            text = "${upgrades.size} in progress",
+                            color = TextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(BluePrimaryContainer)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.NotificationsActive,
+                            contentDescription = null,
+                            tint = BluePrimary,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Alerts ON",
+                            color = BluePrimary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                upgrades.forEach { upgrade ->
+                    ActiveUpgradeItem(
+                        upgrade = upgrade,
+                        currentTime = currentTime,
+                        onFinish = { onFinish(upgrade) },
+                        onCancel = { onCancel(upgrade) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ActiveUpgradeItem(
+    upgrade: ActiveUpgradeEntity,
+    currentTime: Long,
+    onFinish: () -> Unit,
+    onCancel: () -> Unit
+) {
+    val totalDuration = (upgrade.finishTimestamp - upgrade.startTimestamp).coerceAtLeast(1L)
+    val elapsed = (currentTime - upgrade.startTimestamp).coerceIn(0L, totalDuration)
+    val progress = (elapsed.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
+
+    val remainingMillis = (upgrade.finishTimestamp - currentTime).coerceAtLeast(0L)
+    val isReady = remainingMillis <= 0L
+
+    val days = remainingMillis / (24 * 60 * 60 * 1000)
+    val hours = (remainingMillis / (60 * 60 * 1000)) % 24
+    val minutes = (remainingMillis / (60 * 1000)) % 60
+    val seconds = (remainingMillis / 1000) % 60
+
+    val countdownText = when {
+        isReady -> "Ready to Complete!"
+        days > 0 -> "${days}d ${hours}h ${minutes}m ${seconds}s"
+        hours > 0 -> "${hours}h ${minutes}m ${seconds}s"
+        else -> "${minutes}m ${seconds}s"
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(SlateSecondaryContainer)
+            .border(1.dp, if (isReady) EmeraldSuccess.copy(alpha = 0.5f) else LightBorder, RoundedCornerShape(10.dp))
+            .padding(12.dp)
+            .testTag("active_upgrade_item_${upgrade.id}")
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = upgrade.buildingName,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Lv ${upgrade.fromLevel}",
+                        color = TextSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Icon(
+                        Icons.Default.ArrowForward,
+                        contentDescription = null,
+                        tint = BluePrimary,
+                        modifier = Modifier.size(11.dp)
+                    )
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text(
+                        text = "Lv ${upgrade.toLevel}",
+                        color = BluePrimary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(if (isReady) EmeraldContainer else BluePrimaryContainer)
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+            ) {
+                Text(
+                    text = countdownText,
+                    color = if (isReady) EmeraldSuccess else BluePrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(RoundedCornerShape(3.dp)),
+            color = if (isReady) EmeraldSuccess else BluePrimary,
+            trackColor = LightSurface
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedButton(
+                onClick = onCancel,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
+                border = androidx.compose.foundation.BorderStroke(1.dp, LightBorder),
+                shape = RoundedCornerShape(6.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                modifier = Modifier
+                    .height(30.dp)
+                    .testTag("cancel_upgrade_${upgrade.id}")
+            ) {
+                Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(12.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Cancel", fontSize = 11.sp)
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Button(
+                onClick = onFinish,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isReady) EmeraldSuccess else BluePrimary,
+                    contentColor = Color.White
+                ),
+                shape = RoundedCornerShape(6.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                modifier = Modifier
+                    .height(30.dp)
+                    .testTag("finish_upgrade_${upgrade.id}")
+            ) {
+                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(if (isReady) "Finish Now" else "Complete Now", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+fun RecommendedUpgradesSection(
+    recommendedBuildings: List<BuildingEntity>,
+    typeMap: Map<Long, BuildingTypeEntity>,
+    activeUpgrades: List<ActiveUpgradeEntity>,
+    onScheduleUpgrade: (BuildingEntity) -> Unit
+) {
+    val activeBuildingIds = remember(activeUpgrades) { activeUpgrades.map { it.buildingId }.toSet() }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("recommended_upgrades_section"),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = LightSurface),
+        border = androidx.compose.foundation.BorderStroke(1.dp, BluePrimary.copy(alpha = 0.3f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(AmberContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.TrendingUp,
+                            contentDescription = null,
+                            tint = AmberPending,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "RECOMMENDED UPDATES",
+                            color = BluePrimary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+                        Text(
+                            text = "Prioritized by Category (P1 > P2)",
+                            color = TextPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                if (recommendedBuildings.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(BluePrimaryContainer)
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "${recommendedBuildings.size} available",
+                            color = BluePrimary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (recommendedBuildings.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(EmeraldContainer)
+                        .padding(14.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = EmeraldSuccess,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "All Village Upgrades Complete!",
+                                color = EmeraldSuccess,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                            Text(
+                                text = "Every structure across your prioritized categories has achieved maximum level.",
+                                color = TextPrimary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    recommendedBuildings.take(5).forEach { building ->
+                        val category = typeMap[building.typeId]
+                        val isUpgrading = building.id in activeBuildingIds
+                        RecommendedUpgradeCard(
+                            building = building,
+                            category = category,
+                            isUpgrading = isUpgrading,
+                            onUpgradeClick = { onScheduleUpgrade(building) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun RecommendedUpgradeCard(
+    building: BuildingEntity,
+    category: BuildingTypeEntity?,
+    isUpgrading: Boolean,
+    onUpgradeClick: () -> Unit
+) {
+    val priority = category?.priority ?: 999
+    val isTopPriority = priority == 1
+    val progress = if (building.maxLevel > 0) {
+        (building.currentLevel.toFloat() / building.maxLevel.toFloat()).coerceIn(0f, 1f)
+    } else 0f
+
+    val (categoryColor, containerColor) = when (category?.iconKey?.uppercase()) {
+        "DEFENCE" -> BluePrimary to BluePrimaryContainer
+        "RESOURCE" -> EmeraldSuccess to EmeraldContainer
+        "ARMY" -> AmberPending to AmberContainer
+        "TRAPS" -> RedDanger to RedDangerContainer
+        else -> SlateSecondary to SlateSecondaryContainer
+    }
+
+    val categoryIcon = when (category?.iconKey?.uppercase()) {
+        "DEFENCE" -> Icons.Default.Shield
+        "RESOURCE" -> Icons.Default.Storage
+        "ARMY" -> Icons.Default.LocalFireDepartment
+        "TRAPS" -> Icons.Default.Dangerous
+        else -> Icons.Default.Build
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(SlateSecondaryContainer)
+            .border(
+                1.dp,
+                if (isTopPriority) AmberPending.copy(alpha = 0.5f) else LightBorder,
+                RoundedCornerShape(10.dp)
+            )
+            .padding(12.dp)
+            .testTag("recommended_upgrade_${building.id}")
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(containerColor),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = categoryIcon,
+                        contentDescription = null,
+                        tint = categoryColor,
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = building.name,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(if (isTopPriority) AmberContainer else BluePrimaryContainer)
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (isTopPriority) {
+                                    Icon(
+                                        imageVector = Icons.Default.Star,
+                                        contentDescription = null,
+                                        tint = AmberPending,
+                                        modifier = Modifier.size(10.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                }
+                                Text(
+                                    text = if (isTopPriority) "Top Priority (P1)" else "Priority $priority",
+                                    color = if (isTopPriority) AmberPending else BluePrimary,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        text = "${category?.name ?: "Building"} • Level ${building.currentLevel} of ${building.maxLevel}",
+                        color = TextSecondary,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+
+            if (isUpgrading) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(LightSurface)
+                        .border(1.dp, LightBorder, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.HourglassTop,
+                            contentDescription = null,
+                            tint = BluePrimary,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text(
+                            text = "Upgrading",
+                            color = BluePrimary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            } else {
+                Button(
+                    onClick = onUpgradeClick,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = BluePrimary,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(6.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    modifier = Modifier
+                        .height(30.dp)
+                        .testTag("upgrade_recommended_${building.id}")
+                ) {
+                    Icon(Icons.Default.HourglassTop, contentDescription = null, modifier = Modifier.size(13.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Upgrade", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(4.dp)
+                .clip(RoundedCornerShape(2.dp)),
+            color = if (isTopPriority) AmberPending else categoryColor,
+            trackColor = LightSurface
+        )
+    }
+}
+
+

@@ -9,5 +9,6 @@ data class BuildingTypeEntity(
     val id: Long = 0,
     val name: String,
     val village: String = "HOME",
-    val iconKey: String = "DEFENCE"
+    val iconKey: String = "DEFENCE",
+    val priority: Int = 1
 )

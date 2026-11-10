@@ -5,17 +5,19 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AppDatabase
 import com.example.data.ClashRepository
+import com.example.data.entity.ActiveUpgradeEntity
 import com.example.data.entity.BuildingEntity
 import com.example.data.entity.BuildingTypeEntity
+import com.example.data.entity.LevelCount
 import com.example.data.entity.SyncRecordEntity
 import com.example.data.entity.TownHallEntity
 import com.example.network.BuildingDiff
 import com.example.network.GroundingSource
 import com.example.network.GroundingSyncResult
+import com.example.notification.NotificationHelper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
@@ -50,6 +52,7 @@ data class ClashUiState(
     val buildingTypes: List<BuildingTypeEntity> = emptyList(),
     val buildings: List<BuildingEntity> = emptyList(),
     val filteredBuildings: List<BuildingEntity> = emptyList(),
+    val activeUpgrades: List<ActiveUpgradeEntity> = emptyList(),
     val selectedTypeId: Long? = null,
     val searchQuery: String = "",
     val sortOption: SortOption = SortOption.NAME,
@@ -79,31 +82,41 @@ class ClashViewModel(application: Application) : AndroidViewModel(application) {
     private val activeTownHallFlow = _village.flatMapLatest { v -> repository.getActiveTownHall(v) }
     private val buildingsFlow = _village.flatMapLatest { v -> repository.getBuildings(v) }
     private val latestSyncFlow = _village.flatMapLatest { v -> repository.getLatestSync(v) }
+    private val activeUpgradesFlow = repository.getActiveUpgrades()
 
     val uiState: StateFlow<ClashUiState> = combine(
-        _village,
-        activeTownHallFlow,
-        townHallsFlow,
-        buildingTypesFlow,
-        buildingsFlow,
-        _selectedTypeId,
-        _searchQuery,
-        _sortOption,
-        latestSyncFlow,
+        combine(
+            _village,
+            activeTownHallFlow,
+            townHallsFlow,
+            buildingTypesFlow,
+            buildingsFlow
+        ) { village, activeTh, thList, types, buildings ->
+            Tuple5(village, activeTh, thList, types, buildings)
+        },
+        combine(
+            activeUpgradesFlow,
+            _selectedTypeId,
+            _searchQuery,
+            _sortOption,
+            latestSyncFlow
+        ) { upgrades, typeFilter, query, sort, latestSync ->
+            Tuple5(upgrades, typeFilter, query, sort, latestSync)
+        },
         _syncUiState,
         _userNotice
-    ) { params ->
-        val village = params[0] as String
-        val activeTh = params[1] as? TownHallEntity
-        val thList = params[2] as List<TownHallEntity>
-        val types = params[3] as List<BuildingTypeEntity>
-        val allBuildings = params[4] as List<BuildingEntity>
-        val typeFilter = params[5] as? Long
-        val query = params[6] as String
-        val sort = params[7] as SortOption
-        val latestSync = params[8] as? SyncRecordEntity
-        val syncState = params[9] as SyncUiState
-        val notice = params[10] as? String
+    ) { part1, part2, syncState, notice ->
+        val village = part1.a
+        val activeTh = part1.b
+        val thList = part1.c
+        val types = part1.d
+        val allBuildings = part1.e
+
+        val upgrades = part2.a
+        val typeFilter = part2.b
+        val query = part2.c
+        val sort = part2.d
+        val latestSync = part2.e
 
         val filtered = allBuildings
             .filter { b ->
@@ -127,6 +140,7 @@ class ClashViewModel(application: Application) : AndroidViewModel(application) {
             buildingTypes = types,
             buildings = allBuildings,
             filteredBuildings = filtered,
+            activeUpgrades = upgrades,
             selectedTypeId = typeFilter,
             searchQuery = query,
             sortOption = sort,
@@ -139,6 +153,8 @@ class ClashViewModel(application: Application) : AndroidViewModel(application) {
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = ClashUiState()
     )
+
+    private data class Tuple5<A, B, C, D, E>(val a: A, val b: B, val c: C, val d: D, val e: E)
 
     fun switchVillage(village: String) {
         _village.value = village
@@ -177,7 +193,7 @@ class ClashViewModel(application: Application) : AndroidViewModel(application) {
     fun triggerSearchGroundingSync(targetTownHall: TownHallEntity? = null) {
         val currentTh = targetTownHall ?: uiState.value.activeTownHall
         if (currentTh == null) {
-            _syncUiState.value = SyncUiState.Error("Please select or create an active Town Hall first.")
+            _userNotice.value = "Please select or create an active Town Hall first."
             return
         }
 
@@ -215,19 +231,29 @@ class ClashViewModel(application: Application) : AndroidViewModel(application) {
             )
             repository.setActiveTownHall(targetTownHall.id, _village.value)
             _syncUiState.value = SyncUiState.Success(
-                "Successfully synchronized maximum levels for ${targetTownHall.name}! ($updatedCount building levels updated)"
+                "Synchronized maximum levels for ${targetTownHall.name}! ($updatedCount building caps updated)"
             )
         }
     }
 
-    // Building CRUD
-    fun addBuilding(typeId: Long, name: String, currentLevel: Int, maxLevel: Int, notes: String) {
+    // Building CRUD & Distributions
+    fun addBuilding(
+        typeId: Long,
+        name: String,
+        currentLevel: Int = 1,
+        maxLevel: Int = 1,
+        notes: String = "",
+        totalCount: Int = 1
+    ) {
         viewModelScope.launch {
+            val initialDistribution = listOf(LevelCount(level = maxOf(1, currentLevel), count = maxOf(1, totalCount)))
             val entity = BuildingEntity(
                 typeId = typeId,
                 name = name.trim(),
+                totalCount = maxOf(1, totalCount),
                 currentLevel = maxOf(1, currentLevel),
                 maxLevel = maxOf(1, maxLevel),
+                levelDistributionJson = BuildingEntity.serializeLevelDistributions(initialDistribution),
                 village = _village.value,
                 notes = notes.trim()
             )
@@ -247,6 +273,61 @@ class ClashViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.deleteBuilding(building)
             _userNotice.value = "Deleted building '${building.name}'"
+        }
+    }
+
+    fun updateBuildingDistribution(
+        buildingId: Long,
+        totalCount: Int,
+        maxLevel: Int,
+        distributions: List<LevelCount>
+    ) {
+        viewModelScope.launch {
+            repository.updateBuildingDistribution(buildingId, totalCount, maxLevel, distributions)
+            _userNotice.value = "Updated level distribution for building"
+        }
+    }
+
+    // Upgrade Scheduling & Timer Notifications
+    fun scheduleUpgrade(
+        building: BuildingEntity,
+        fromLevel: Int,
+        toLevel: Int,
+        durationMillis: Long
+    ) {
+        viewModelScope.launch {
+            val finishTime = System.currentTimeMillis() + durationMillis
+            val upgrade = ActiveUpgradeEntity(
+                buildingId = building.id,
+                buildingName = building.name,
+                fromLevel = fromLevel,
+                toLevel = toLevel,
+                startTimestamp = System.currentTimeMillis(),
+                finishTimestamp = finishTime
+            )
+            val newId = repository.insertActiveUpgrade(upgrade)
+            val scheduledUpgrade = upgrade.copy(id = newId)
+
+            // Schedule system alarm and notification
+            NotificationHelper.scheduleUpgradeAlarm(getApplication(), scheduledUpgrade)
+
+            _userNotice.value = "Started upgrade for ${building.name} (Lv $fromLevel ➔ Lv $toLevel)"
+        }
+    }
+
+    fun finishActiveUpgrade(upgrade: ActiveUpgradeEntity) {
+        viewModelScope.launch {
+            NotificationHelper.cancelUpgradeAlarm(getApplication(), upgrade.id)
+            repository.finishActiveUpgrade(upgrade)
+            _userNotice.value = "Completed upgrade for ${upgrade.buildingName} to Level ${upgrade.toLevel}!"
+        }
+    }
+
+    fun cancelActiveUpgrade(upgrade: ActiveUpgradeEntity) {
+        viewModelScope.launch {
+            NotificationHelper.cancelUpgradeAlarm(getApplication(), upgrade.id)
+            repository.deleteActiveUpgrade(upgrade.id)
+            _userNotice.value = "Cancelled upgrade for ${upgrade.buildingName}"
         }
     }
 
@@ -304,15 +385,16 @@ class ClashViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Building Type CRUD
-    fun addBuildingType(name: String, iconKey: String) {
+    fun addBuildingType(name: String, iconKey: String, priority: Int = 1) {
         viewModelScope.launch {
             val entity = BuildingTypeEntity(
                 name = name.trim(),
                 village = _village.value,
-                iconKey = iconKey
+                iconKey = iconKey,
+                priority = maxOf(1, priority)
             )
             repository.insertBuildingType(entity)
-            _userNotice.value = "Added category '${name.trim()}'"
+            _userNotice.value = "Added category '${name.trim()}' (Priority $priority)"
         }
     }
 

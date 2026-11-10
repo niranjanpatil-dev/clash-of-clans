@@ -16,10 +16,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Dangerous
 import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Button
@@ -33,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -67,11 +70,12 @@ val AvailableCategoryIcons = listOf(
 @Composable
 fun AddEditBuildingTypeDialog(
     typeToEdit: BuildingTypeEntity? = null,
-    onSave: (name: String, iconKey: String) -> Unit,
+    onSave: (name: String, iconKey: String, priority: Int) -> Unit,
     onDismiss: () -> Unit
 ) {
     var name by remember { mutableStateOf(typeToEdit?.name ?: "") }
     var selectedIconKey by remember { mutableStateOf(typeToEdit?.iconKey ?: "DEFENCE") }
+    var priority by remember { mutableIntStateOf(typeToEdit?.priority ?: 1) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -130,6 +134,71 @@ fun AddEditBuildingTypeDialog(
                         .fillMaxWidth()
                         .testTag("type_name_input")
                 )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Priority Stepper
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Category Priority", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        Text(
+                            text = "1 is highest priority (1 before 2)",
+                            color = BluePrimary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(SlateSecondaryContainer)
+                            .border(1.dp, LightBorder, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = { if (priority > 1) priority-- },
+                            enabled = priority > 1,
+                            modifier = Modifier
+                                .size(32.dp)
+                                .testTag("priority_dec")
+                        ) {
+                            Icon(
+                                Icons.Default.Remove,
+                                contentDescription = "Decrease Priority",
+                                tint = if (priority > 1) TextPrimary else TextMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
+                        Text(
+                            text = "$priority",
+                            color = BluePrimary,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 15.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+
+                        IconButton(
+                            onClick = { priority++ },
+                            modifier = Modifier
+                                .size(32.dp)
+                                .testTag("priority_inc")
+                        ) {
+                            Icon(
+                                Icons.Default.Add,
+                                contentDescription = "Increase Priority",
+                                tint = TextPrimary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -192,7 +261,7 @@ fun AddEditBuildingTypeDialog(
                                 errorMessage = "Please enter a category name."
                                 return@Button
                             }
-                            onSave(name.trim(), selectedIconKey)
+                            onSave(name.trim(), selectedIconKey, priority)
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = BluePrimary, contentColor = Color.White),
                         modifier = Modifier.testTag("save_type_button")

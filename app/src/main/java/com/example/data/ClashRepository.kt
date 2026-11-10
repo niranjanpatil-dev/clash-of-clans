@@ -1,11 +1,14 @@
 package com.example.data
 
+import com.example.data.dao.ActiveUpgradeDao
 import com.example.data.dao.BuildingDao
 import com.example.data.dao.BuildingTypeDao
 import com.example.data.dao.SyncRecordDao
 import com.example.data.dao.TownHallDao
+import com.example.data.entity.ActiveUpgradeEntity
 import com.example.data.entity.BuildingEntity
 import com.example.data.entity.BuildingTypeEntity
+import com.example.data.entity.LevelCount
 import com.example.data.entity.SyncRecordEntity
 import com.example.data.entity.TownHallEntity
 import com.example.network.BuildingDiff
@@ -25,6 +28,7 @@ class ClashRepository(
     private val thDao: TownHallDao = database.townHallDao()
     private val buildingDao: BuildingDao = database.buildingDao()
     private val syncDao: SyncRecordDao = database.syncRecordDao()
+    private val upgradeDao: ActiveUpgradeDao = database.activeUpgradeDao()
 
     // Building Types
     fun getBuildingTypes(village: String): Flow<List<BuildingTypeEntity>> =
@@ -65,6 +69,9 @@ class ClashRepository(
     fun getBuildings(village: String): Flow<List<BuildingEntity>> =
         buildingDao.getByVillageFlow(village)
 
+    suspend fun getBuildingById(id: Long): BuildingEntity? =
+        buildingDao.getById(id)
+
     suspend fun insertBuilding(building: BuildingEntity): Long =
         buildingDao.insert(building)
 
@@ -73,6 +80,74 @@ class ClashRepository(
 
     suspend fun deleteBuilding(building: BuildingEntity) =
         buildingDao.delete(building)
+
+    suspend fun updateBuildingDistribution(
+        buildingId: Long,
+        totalCount: Int,
+        maxLevel: Int,
+        distributions: List<LevelCount>
+    ) {
+        val existing = buildingDao.getById(buildingId) ?: return
+        val validDistributions = distributions.filter { it.count > 0 }
+        val highestLevel = validDistributions.maxOfOrNull { it.level } ?: existing.currentLevel
+        val json = BuildingEntity.serializeLevelDistributions(validDistributions)
+
+        val updated = existing.copy(
+            totalCount = maxOf(1, totalCount),
+            maxLevel = maxOf(1, maxLevel),
+            currentLevel = highestLevel,
+            levelDistributionJson = json
+        )
+        buildingDao.update(updated)
+    }
+
+    // Active Upgrades & Scheduling
+    fun getActiveUpgrades(): Flow<List<ActiveUpgradeEntity>> =
+        upgradeDao.getActiveUpgradesFlow()
+
+    suspend fun insertActiveUpgrade(upgrade: ActiveUpgradeEntity): Long =
+        upgradeDao.insert(upgrade)
+
+    suspend fun deleteActiveUpgrade(id: Long) =
+        upgradeDao.deleteById(id)
+
+    suspend fun finishActiveUpgrade(upgrade: ActiveUpgradeEntity) {
+        // 1. Mark or remove from active upgrades
+        upgradeDao.deleteById(upgrade.id)
+
+        // 2. Transfer 1 instance in building distribution
+        val building = buildingDao.getById(upgrade.buildingId) ?: return
+        val currentDistributions = building.parseLevelDistributions().toMutableList()
+
+        val fromIndex = currentDistributions.indexOfFirst { it.level == upgrade.fromLevel }
+        if (fromIndex != -1) {
+            val fromItem = currentDistributions[fromIndex]
+            if (fromItem.count > 1) {
+                currentDistributions[fromIndex] = fromItem.copy(count = fromItem.count - 1)
+            } else {
+                currentDistributions.removeAt(fromIndex)
+            }
+        }
+
+        val toIndex = currentDistributions.indexOfFirst { it.level == upgrade.toLevel }
+        if (toIndex != -1) {
+            val toItem = currentDistributions[toIndex]
+            currentDistributions[toIndex] = toItem.copy(count = toItem.count + 1)
+        } else {
+            currentDistributions.add(LevelCount(level = upgrade.toLevel, count = 1))
+        }
+
+        val sorted = currentDistributions.sortedBy { it.level }
+        val highestLevel = sorted.maxOfOrNull { it.level } ?: building.currentLevel
+        val newJson = BuildingEntity.serializeLevelDistributions(sorted)
+
+        buildingDao.update(
+            building.copy(
+                currentLevel = highestLevel,
+                levelDistributionJson = newJson
+            )
+        )
+    }
 
     // Sync History
     fun getLatestSync(village: String): Flow<SyncRecordEntity?> =
@@ -103,7 +178,6 @@ class ClashRepository(
         for (diff in diffs) {
             val existing = currentBuildings[diff.buildingId]
             if (existing != null && existing.maxLevel != diff.newMaxLevel) {
-                // IMPORTANT: Preserve existing currentLevel! Only update maxLevel.
                 toUpdate.add(existing.copy(maxLevel = diff.newMaxLevel))
             }
         }
@@ -112,7 +186,6 @@ class ClashRepository(
             buildingDao.updateAll(toUpdate)
         }
 
-        // Save sync record
         val sourcesJsonArray = JSONArray().apply {
             sources.forEach { s ->
                 put(JSONObject().apply {

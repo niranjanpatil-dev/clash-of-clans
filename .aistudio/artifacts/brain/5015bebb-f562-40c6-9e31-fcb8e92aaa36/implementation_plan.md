@@ -1,161 +1,163 @@
-# Clash of Clans Building Management App
+# Building Count, Level Distribution & Upgrade Timer Plan
 
-A modern, high-fidelity Clash of Clans Building Management Android application built with Jetpack Compose, Room persistence, and Google Search Grounding via Gemini for real-time automatic synchronization of maximum building upgrade levels across Home Village and Builder Base.
+An architectural blueprint to enhance `BuildingEntity` with multi-instance quantity tracking, per-level distribution management, and upgrade completion scheduling with Android system notifications and in-app countdown timers.
+
+---
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
 > The following product decisions were confirmed during the planning phase:
-> - **Village Scope**: Supports both **Home Village** (TH1 to TH18) and **Builder Base** (BH1 to BH10) structures with seamless category toggling.
-> - **Initial Data**: Pre-loaded with standard Building Types (Defence, Resource, Army, Traps, Other) and iconic Clash of Clans buildings (Cannons, Archer Towers, Wizard Towers, Infernos, Monolith, Storages, etc.).
-> - **Search Grounding Sync**: Automatically prompts a **Diff Preview & Confirmation Dialog** whenever the active Town Hall level changes, alongside an explicit **Manual Sync** button.
+> - **Quantity & Level Distribution**: Each building tracks a total instance count (e.g., 5 Cannons) with a dedicated per-level distribution breakdown (e.g., 2 at Level 10, 3 at Level 11, with a maximum level cap of 15).
+> - **Upgrade Time Input**: Players specify upgrade duration using a **Days, Hours, and Minutes** duration picker with quick-select Clash of Clans presets (e.g., 12h, 1d, 3d, 7d, 14d).
+> - **Upgrade Alerts**: Upgrades are tracked via **both** an in-app active countdown timer on the Dashboard and an **Android System Notification** (`POST_NOTIFICATIONS`) when the builder finishes.
 
-- **Confirmed Decision 1**: Room SQLite database with Repository pattern for resilient, offline-first local data storage.
-- **Confirmed Decision 2**: Google Search Grounding using `gemini-3.8-flash` with the `googleSearch` tool to retrieve verified building maximum levels and source citation links directly from web data.
-- **Confirmed Decision 3**: Strict safety constraint where existing `Current Level` values are never overwritten during sync; only `Maximum Level` is updated after user confirmation.
+- **Confirmed Decision 1**: Update `BuildingEntity` to include `totalCount` and a structured `levelDistributionJson` representation, ensuring backward compatibility with existing Room databases.
+- **Confirmed Decision 2**: Introduce an `ActiveUpgradeEntity` and `UpgradeNotificationWorker` using Android `WorkManager` for battery-efficient, reliable alarm delivery even if the app process is closed.
+- **Confirmed Decision 3**: Upgrade dialog asks which specific level is being upgraded (e.g., 1x Level 10 ➔ Level 11) and automatically transitions that instance to the next level upon completion.
 
 ---
 
 ## 1. Overview & Core Concept
 
-- **What It Does**: Enables Clash of Clans players and clan leaders to track, manage, and optimize their village upgrades. Users can record current and maximum building levels, inspect category-wise completion rates, and keep maximum levels up to date with the latest Supercell updates via Google Search Grounding.
-- **Target Audience**: Clash of Clans players managing active village progressions across Town Hall 1 through 18 and Builder Hall 1 through 10.
-- **Key Value**: Eliminates manual wiki lookups for building level caps after Town Hall upgrades, presenting clear visual upgrade trackers, level diffs, and real-time grounding citations.
+In Clash of Clans, a village rarely has only one instance of a building. A player typically owns 5–7 Cannons, 6 Archer Towers, and 4 Wizard Towers at varying upgrade levels. 
+
+This enhancement delivers:
+1. **Multi-Instance Distribution Form**:
+   - Manage total count of each building (e.g., 5 Cannons).
+   - Allocate count per level (e.g., 2 at Lv 10, 3 at Lv 11) ensuring the sum matches the total count.
+   - Configure or view maximum level cap (e.g., Max Lv 15).
+2. **Upgrade Scheduler & Alert System**:
+   - When a user plans an upgrade, an upgrade prompt appears:
+     - Select instance to upgrade (e.g., Level 10 ➔ Level 11).
+     - Enter upgrade finish duration (Days, Hours, Minutes).
+     - Calculates target completion datetime (e.g., "Finishes Tomorrow at 5:15 PM").
+   - Schedules background system notification:
+     - *"🔨 Builder Finished! Your Cannon upgrade to Level 11 is complete. Please check your village!"*
+   - Displays real-time live countdown timer card on the Dashboard.
 
 ---
 
 ## 2. User Experience & Visual Design
 
 ### Key User Flows
-1. **Dashboard & Progression Overview**:
-   - The user opens the app to a rich gaming dashboard displaying the active Town Hall badge, overall upgrade progress percentage, completed vs pending counters, and category progress bars.
-   - A quick-switch Town Hall banner displays the current village tier and last synchronized status.
-2. **Town Hall Level Change & Grounding Sync**:
-   - The user upgrades or changes their Town Hall level.
-   - The app initiates Google Search Grounding (`gemini-3.8-flash` + `googleSearch`) to query current maximum levels for the new Town Hall.
-   - A **Diff Preview Modal** displays:
-     - Unchanged buildings
-     - Upgraded max levels (e.g., Archer Tower: Max 21 ➔ Max 22)
-     - Preserved current user levels
-     - Web grounding source URLs & titles
-   - User reviews and confirms to apply updates into the database.
-3. **Building Master CRUD**:
-   - View buildings with search, village filter (Home Village / Builder Base), and category chips (Defence, Resource, Army, Traps).
-   - Tap "+ Add Building" to open a modal with type dropdown, name, current level stepper, and max level.
-   - Edit, delete with confirmation, and one-tap "+1" / "-1" level adjustments directly on building cards.
-4. **Building Type Master CRUD**:
-   - Manage categories (Defence, Resource, Army, Traps, Other) with custom icons and color tags.
-5. **Town Hall Master CRUD**:
-   - Add custom Town Hall or Builder Hall entries, customize names/themes, and set the active village level.
 
-### Visual Identity & Theme
-- **Aesthetic Direction**: Clash of Clans-inspired dark gaming aesthetic featuring stone textures, glowing mana/elixir accents, polished gold trims, and high-contrast typography.
-- **Color Palette**:
-  - `Dark Obsidian Background`: `#0D1117` and `#161B22`
-  - `Surface / Card Elevaton`: `#1F2937` with subtle glowing borders
-  - `Clan Gold (Primary Accent)`: `#F59E0B` / `#FBBF24` (Maxed progress, badges)
-  - `Elixir Violet / Magenta`: `#D946EF` / `#A855F7` (In-progress indicators, army)
-  - `Dark Elixir Indigo`: `#6366F1` (Special structures & heroes)
-  - `Gem Emerald`: `#10B981` (Completed state, positive diffs)
-  - `Town Hall Flame`: `#EF4444` (Town Hall headers, warning diffs)
-- **Component Styling & Layout**:
-  - Adaptive layout: Side Navigation Rail on tablets and landscape screens; Bottom Navigation Bar on compact portrait mobile devices.
-  - Multi-tier progress bars displaying current level vs maximum level with percentage completion.
-  - Diff chips showing green indicators `[+1 Level Cap]` on preview items.
+```
+┌────────────────────────┐      ┌───────────────────────────┐      ┌────────────────────────────┐
+│   Building Card List   │ ───► │ Count & Distribution Form │ ───► │   Level Allocation Rows    │
+│  - Total Count: 5      │      │  - Total Count: [ 5 ]     │      │   - 2x Level 10  [ - ] [ + ]│
+│  - Levels: 2x10, 3x11  │      │  - Max Level: [ 15 ]      │      │   - 3x Level 11  [ - ] [ + ]│
+└───────────┬────────────┘      └───────────────────────────┘      └────────────────────────────┘
+            │
+            │ Tap "Upgrade Level"
+            ▼
+┌────────────────────────┐      ┌───────────────────────────┐      ┌────────────────────────────┐
+│ Upgrade Instance Modal │ ───► │  Duration Picker (D/H/M)  │ ───► │ Scheduled Alert & Timer    │
+│ - Select: 1x Lv 10➔11  │      │  - [0d] [14h] [30m]       │      │ - Live countdown in app    │
+│                        │      │  - Presets: 12h, 1d, 3d   │      │ - System push notification │
+└────────────────────────┘      └───────────────────────────┘      └────────────────────────────┘
+```
+
+1. **Building Card Display**:
+   - Displays total count badge: `Total: 5`
+   - Level distribution chips: `2x Lv 10` • `3x Lv 11` (Max Lv 15)
+   - Action buttons: "Manage Counts", "Start Upgrade"
+2. **Manage Count & Distribution Dialog**:
+   - **Total Count**: Stepper / input (1 to 20).
+   - **Max Level**: Maximum upgrade level cap.
+   - **Distribution Allocation**:
+     - Dynamic rows: Level and Count.
+     - Auto-validating status pill: *"Allocated 5 / 5 instances"* (Green) or *"3 / 5 allocated (2 unassigned)"* (Orange warning).
+     - Quick "Distribute Evenly" helper button.
+3. **Start Upgrade Dialog**:
+   - Displays available levels with un-maxed instances (e.g., "2 instances at Lv 10").
+   - Upgrade target: "Upgrading 1 instance: Level 10 ➔ Level 11".
+   - **Duration Inputs**:
+     - Three clean stepper/text inputs: **Days**, **Hours**, **Minutes**.
+     - Quick preset chips: `12h`, `1d`, `2d`, `3d`, `5d`, `7d`, `12d`, `14d`.
+     - Calculated finish timestamp banner: *"Finishes Friday, Nov 14 at 6:45 PM"*.
+   - Push notification permission request (`POST_NOTIFICATIONS`) on Android 13+.
+4. **Active Upgrades Dashboard Widget**:
+   - Displays all active in-progress upgrades.
+   - Real-time countdown timer: `13h 24m 12s remaining`.
+   - "Finish Now" and "Cancel" buttons.
 
 ---
 
 ## 3. Key Product Decisions & Trade-Offs
 
-- **Decision 1: Persistence Layer (Room Database)**
-  - *Chosen Approach*: Android Room SQLite database with typed DAOs and reactive `Flow` emissions.
-  - *Why*: Instant offline access, zero sign-in barrier for village tracking, and reactive UI updates across screens when syncing or editing.
-- **Decision 2: Google Search Grounding Execution**
-  - *Chosen Approach*: Direct Google AI Studio Gemini API integration (`models/gemini-3.8-flash` with `googleSearch` tool) via Retrofit and OkHttp.
-  - *Why*: Delivers verified live web search data from the Clash of Clans Wiki and official patch notes, including grounding metadata (source URLs and search query pills) as requested.
-- **Decision 3: Diff-First Synchronization Workflow**
-  - *Chosen Approach*: Present an explicit Diff Confirmation Dialog before any maximum level in the database is modified.
-  - *Why*: Protects user data from unexpected updates, lets users inspect new level caps before saving, and adheres strictly to the rule: "Never overwrite current levels; ask confirmation before updating".
+- **Decision 1: Storage of Level Distributions**
+  - *Chosen Approach*: Store distribution as a type-safe list of `LevelCount(level: Int, count: Int)` serialized as JSON in `BuildingEntity.levelDistributionJson`, with helper getter/setter extensions.
+  - *Why*: Avoids multi-table joins for simple count queries, keeps Room database operations atomic and fast, and preserves backward compatibility with existing databases.
+- **Decision 2: Notification Execution with WorkManager**
+  - *Chosen Approach*: `WorkManager` with `OneTimeWorkRequestBuilder` and `setInitialDelay()`, using `NotificationManagerCompat` and a dedicated `NotificationChannel("clash_upgrades", "Building Upgrades", IMPORTANCE_HIGH)`.
+  - *Why*: Guarantees execution across Android Doze mode and device reboots without draining battery.
+- **Decision 3: Automatic Level Transfer Upon Completion**
+  - *Chosen Approach*: When an upgrade timer expires (or user clicks "Finish Now"), automatically move 1 instance from the old level to the new level in `levelDistributionJson`.
+  - *Why*: Eliminates tedious manual adjustments; the player village stays synchronized with actual in-game completions.
 
 ---
 
 ## 4. Technical Architecture & Data Strategy
 
-### System Architecture & Data Flow
+### Data Schema Changes
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                          Jetpack Compose UI                            │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌───────────────┐  │
-│  │  Dashboard   │ │  Buildings   │ │  Town Halls  │ │Building Types │  │
-│  │    Screen    │ │ Master Screen│ │ Master Screen│ │ Master Screen │  │
-│  └──────┬───────┘ └──────┬───────┘ └──────┬───────┘ └───────┬───────┘  │
-│         │                │                │                 │          │
-│         └────────────────┼────────────────┼─────────────────┘          │
-│                          ▼                                             │
-│                 ClashViewModel (StateFlow)                             │
-│                  - villageFilter State                                 │
-│                  - activeTownHall State                                │
-│                  - syncDiffPreview State                               │
-└──────────────────────────┬─────────────────────────────────────────────┘
-                           │
-       ┌───────────────────┴───────────────────┐
-       ▼                                       ▼
-┌─────────────────────────┐         ┌───────────────────────────────────┐
-│     Room Repository     │         │   Gemini Grounding Service        │
-│  ┌───────────────────┐  │         │  (gemini-3.8-flash + googleSearch)│
-│  │ BuildingDao       │  │         │  - Retrofit HTTP Client           │
-│  │ TownHallDao       │  │         │  - Dynamic Search Query Builder   │
-│  │ BuildingTypeDao   │  │         │  - JSON Extraction & URL Parser   │
-│  │ SyncHistoryDao    │  │         └─────────────────┬─────────────────┘
-│  └───────────────────┘  │                           │
-│     SQLite Database     │                           │ Diff Preview
-│   (Local Persistence)   │◄──────────────────────────┘ (User Confirmed)
-└─────────────────────────┘
+#### 1. `BuildingEntity.kt` Updates
+```kotlin
+@Entity(tableName = "buildings", ...)
+data class BuildingEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val typeId: Long,
+    val name: String,
+    val totalCount: Int = 1,                 // Total buildings owned
+    val maxLevel: Int = 1,                   // Max level cap
+    val levelDistributionJson: String = "[]",// JSON array of LevelCount
+    val currentLevel: Int = 1,               // Average or highest level for sorting
+    val village: String = "HOME",
+    val notes: String = ""
+)
+
+data class LevelCount(
+    val level: Int,
+    val count: Int
+)
 ```
 
-### Data Entities & Schema
+#### 2. `ActiveUpgradeEntity.kt` (New Table)
+```kotlin
+@Entity(tableName = "active_upgrades")
+data class ActiveUpgradeEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val buildingId: Long,
+    val buildingName: String,
+    val fromLevel: Int,
+    val toLevel: Int,
+    val startTimestamp: Long,
+    val finishTimestamp: Long,
+    val workRequestId: String,
+    val isCompleted: Boolean = false
+)
+```
 
-1. **`BuildingTypeEntity`**:
-   - `id: Long` (Auto-generated Primary Key)
-   - `name: String` ("Defence", "Resource", "Army", "Traps", "Other")
-   - `village: String` ("HOME", "BUILDER")
-   - `iconKey: String`
-
-2. **`TownHallEntity`**:
-   - `id: Long` (Auto-generated Primary Key)
-   - `level: Int` (1 to 18 for Home Village; 1 to 10 for Builder Base)
-   - `name: String` (e.g., "Town Hall 16 - Nature", "Builder Hall 10")
-   - `village: String` ("HOME", "BUILDER")
-   - `isActive: Boolean` (Active Town Hall driving max levels)
-
-3. **`BuildingEntity`**:
-   - `id: Long` (Auto-generated Primary Key)
-   - `typeId: Long` (Foreign Key reference to `BuildingTypeEntity`)
-   - `name: String` (e.g., "Cannon", "Archer Tower", "Eagle Artillery")
-   - `currentLevel: Int` (User's current in-game level)
-   - `maxLevel: Int` (Current maximum allowed level)
-   - `village: String` ("HOME", "BUILDER")
-   - `notes: String`
-
-4. **`SyncRecordEntity`**:
-   - `id: Long` (Auto-generated Primary Key)
-   - `townHallLevel: Int`
-   - `village: String`
-   - `syncedAtTimestamp: Long`
-   - `sourcesListJson: String` (URLs and titles from Search Grounding)
-   - `updatedBuildingsCount: Int`
-
-### Search Grounding Request & Response Flow
-1. **Query Construction**:
-   - Prompt sent to `gemini-3.8-flash`:
-     `"Find the exact maximum building upgrade levels for each Clash of Clans building at Town Hall level [X]. Return JSON array with keys 'buildingName' and 'maxLevel'."`
-   - Tools payload: `[ { "googleSearch": {} } ]`.
-2. **Grounding Metadata Parsing**:
-   - Extract `groundingMetadata.groundingChunks.web.uri` and `title` to display source citations.
-3. **Diff Calculation**:
-   - Match fetched building names against existing records in `BuildingEntity`.
-   - Calculate changes: `BuildingDiff(building, oldMaxLevel, newMaxLevel)`.
-   - Present modal with diff list and source URLs.
-4. **Confirmed Application**:
-   - Execute bulk update in Room database within a transaction, recording the sync timestamp and source citations.
+### Components to Implement
+1. **Entity & DAO Layer**:
+   - Add `ActiveUpgradeEntity` and `ActiveUpgradeDao`.
+   - Update `BuildingEntity` with `totalCount` and `levelDistributionJson`.
+   - Bump Room database version from `2` to `3` with safe migration.
+2. **Repository Layer**:
+   - Add methods to schedule and complete upgrades.
+   - Reactive flow of active upgrades for the Dashboard.
+3. **Background Worker**:
+   - `UpgradeNotificationWorker.kt` (extends `CoroutineWorker`):
+     - Displays notification with sound, vibration, and title: *"🔨 Builder Finished: {Building Name}"*.
+     - Body: *"Your {Building Name} upgrade to Level {ToLevel} is complete! Please check your village."*
+     - Updates database record to marked completed and updates the building distribution.
+4. **UI Components & Dialogs**:
+   - `ManageBuildingCountDialog.kt`: Form for total count, max level, and level allocation.
+   - `ScheduleUpgradeDialog.kt`: Duration picker with Days/Hours/Minutes and presets.
+   - `ActiveUpgradesWidget.kt`: Live countdown card on the Dashboard.
+5. **Permissions**:
+   - Declare `POST_NOTIFICATIONS` in `AndroidManifest.xml`.
+   - Request runtime permission in Jetpack Compose prior to scheduling notifications.

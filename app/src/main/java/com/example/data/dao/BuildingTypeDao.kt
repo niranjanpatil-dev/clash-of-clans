@@ -11,10 +11,10 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface BuildingTypeDao {
-    @Query("SELECT * FROM building_types WHERE village = :village ORDER BY id ASC")
+    @Query("SELECT * FROM building_types WHERE village = :village ORDER BY priority ASC, id ASC")
     fun getByVillageFlow(village: String): Flow<List<BuildingTypeEntity>>
 
-    @Query("SELECT * FROM building_types ORDER BY id ASC")
+    @Query("SELECT * FROM building_types ORDER BY priority ASC, id ASC")
     fun getAllFlow(): Flow<List<BuildingTypeEntity>>
 
     @Query("SELECT * FROM building_types WHERE id = :id LIMIT 1")

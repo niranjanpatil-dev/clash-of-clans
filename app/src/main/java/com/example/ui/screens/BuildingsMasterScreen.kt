@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Dangerous
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.HourglassTop
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
@@ -43,6 +45,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -91,6 +94,8 @@ fun BuildingsMasterScreen(
     onAddBuildingClick: () -> Unit,
     onEditBuildingClick: (BuildingEntity) -> Unit,
     onDeleteBuildingClick: (BuildingEntity) -> Unit,
+    onManageCountsClick: (BuildingEntity) -> Unit,
+    onScheduleUpgradeClick: (BuildingEntity) -> Unit,
     onIncrementLevel: (BuildingEntity) -> Unit,
     onDecrementLevel: (BuildingEntity) -> Unit
 ) {
@@ -354,6 +359,8 @@ fun BuildingsMasterScreen(
                             category = category,
                             onEdit = { onEditBuildingClick(building) },
                             onDelete = { onDeleteBuildingClick(building) },
+                            onManageCounts = { onManageCountsClick(building) },
+                            onScheduleUpgrade = { onScheduleUpgradeClick(building) },
                             onIncrement = { onIncrementLevel(building) },
                             onDecrement = { onDecrementLevel(building) }
                         )
@@ -401,9 +408,12 @@ fun BuildingMasterItemCard(
     category: BuildingTypeEntity?,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onManageCounts: () -> Unit,
+    onScheduleUpgrade: () -> Unit,
     onIncrement: () -> Unit,
     onDecrement: () -> Unit
 ) {
+    val distributions = remember(building) { building.parseLevelDistributions() }
     val isMaxed = building.currentLevel >= building.maxLevel && building.maxLevel > 0
     val progress = if (building.maxLevel > 0) {
         (building.currentLevel.toFloat() / building.maxLevel.toFloat()).coerceIn(0f, 1f)
@@ -444,7 +454,7 @@ fun BuildingMasterItemCard(
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(38.dp)
                             .clip(CircleShape)
                             .background(containerColor),
                         contentAlignment = Alignment.Center
@@ -453,7 +463,7 @@ fun BuildingMasterItemCard(
                             imageVector = categoryIcon,
                             contentDescription = null,
                             tint = categoryColor,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                     Spacer(modifier = Modifier.width(10.dp))
@@ -465,8 +475,23 @@ fun BuildingMasterItemCard(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp
                             )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            // Total count badge
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(BluePrimaryContainer)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "Total: ${building.totalCount}",
+                                    color = BluePrimary,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                             if (isMaxed) {
-                                Spacer(modifier = Modifier.width(6.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(4.dp))
@@ -483,7 +508,7 @@ fun BuildingMasterItemCard(
                             }
                         }
                         Text(
-                            text = category?.name ?: "Building",
+                            text = "${category?.name ?: "Building"} • Max Lv ${building.maxLevel}",
                             color = categoryColor,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium
@@ -532,7 +557,49 @@ fun BuildingMasterItemCard(
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Level Breakdown Chips (e.g., 3x Lv 10, 2x Lv 11)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Instances:",
+                    color = TextMuted,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(distributions) { item ->
+                        val isLevelMaxed = item.level >= building.maxLevel && building.maxLevel > 0
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isLevelMaxed) EmeraldContainer else SlateSecondaryContainer)
+                                .border(
+                                    1.dp,
+                                    if (isLevelMaxed) EmeraldSuccess.copy(alpha = 0.3f) else LightBorder,
+                                    RoundedCornerShape(6.dp)
+                                )
+                                .padding(horizontal = 7.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = "${item.count}x Lv ${item.level}",
+                                color = if (isLevelMaxed) EmeraldSuccess else TextPrimary,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Level Progress and Quick Steppers Row
             Row(
@@ -570,9 +637,9 @@ fun BuildingMasterItemCard(
                     )
                 }
 
-                Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.width(14.dp))
 
-                // Quick - / + Stepper for Current Level
+                // Quick - / + Stepper for base Current Level
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
@@ -584,7 +651,7 @@ fun BuildingMasterItemCard(
                         onClick = onDecrement,
                         enabled = building.currentLevel > 1,
                         modifier = Modifier
-                            .size(32.dp)
+                            .size(28.dp)
                             .testTag("quick_dec_${building.id}")
                     ) {
                         Icon(
@@ -600,14 +667,14 @@ fun BuildingMasterItemCard(
                         color = BluePrimary,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
-                        modifier = Modifier.padding(horizontal = 6.dp)
+                        modifier = Modifier.padding(horizontal = 4.dp)
                     )
 
                     IconButton(
                         onClick = onIncrement,
                         enabled = building.currentLevel < building.maxLevel,
                         modifier = Modifier
-                            .size(32.dp)
+                            .size(28.dp)
                             .testTag("quick_inc_${building.id}")
                     ) {
                         Icon(
@@ -617,6 +684,65 @@ fun BuildingMasterItemCard(
                             modifier = Modifier.size(14.dp)
                         )
                     }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Action Buttons: "Manage Counts" & "Upgrade"
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onManageCounts,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = BluePrimary),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, BluePrimary),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(36.dp)
+                        .testTag("manage_counts_${building.id}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Layers,
+                        contentDescription = null,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Manage Counts",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Button(
+                    onClick = onScheduleUpgrade,
+                    enabled = !isMaxed,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = BluePrimary,
+                        contentColor = Color.White,
+                        disabledContainerColor = SlateSecondaryContainer,
+                        disabledContentColor = TextMuted
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(36.dp)
+                        .testTag("schedule_upgrade_${building.id}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.HourglassTop,
+                        contentDescription = null,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (isMaxed) "Maxed Out" else "Upgrade",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }

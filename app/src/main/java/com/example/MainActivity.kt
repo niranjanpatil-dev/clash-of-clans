@@ -68,10 +68,16 @@ import com.example.data.entity.TownHallEntity
 import com.example.ui.ClashUiState
 import com.example.ui.ClashViewModel
 import com.example.ui.SyncUiState
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import com.example.ui.dialogs.AddEditBuildingDialog
 import com.example.ui.dialogs.AddEditBuildingTypeDialog
 import com.example.ui.dialogs.AddEditTownHallDialog
 import com.example.ui.dialogs.DeleteConfirmDialog
+import com.example.ui.dialogs.ManageBuildingCountDialog
+import com.example.ui.dialogs.ScheduleUpgradeDialog
 import com.example.ui.dialogs.SyncDiffDialog
 import com.example.ui.screens.BuildingTypeMasterScreen
 import com.example.ui.screens.BuildingsMasterScreen
@@ -124,6 +130,8 @@ fun ClashApp(viewModel: ClashViewModel = viewModel()) {
     // Dialog States
     var showAddBuilding by remember { mutableStateOf(false) }
     var buildingToEdit by remember { mutableStateOf<BuildingEntity?>(null) }
+    var buildingToManageCount by remember { mutableStateOf<BuildingEntity?>(null) }
+    var buildingToUpgrade by remember { mutableStateOf<BuildingEntity?>(null) }
 
     var showAddTownHall by remember { mutableStateOf(false) }
     var townHallToEdit by remember { mutableStateOf<TownHallEntity?>(null) }
@@ -132,6 +140,17 @@ fun ClashApp(viewModel: ClashViewModel = viewModel()) {
     var typeToEdit by remember { mutableStateOf<BuildingTypeEntity?>(null) }
 
     var itemToDelete by remember { mutableStateOf<DeleteTarget?>(null) }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { /* Permission handled gracefully */ }
+    )
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     // Handle user feedback notices
     LaunchedEffect(uiState.userNotice) {
@@ -298,6 +317,14 @@ fun ClashApp(viewModel: ClashViewModel = viewModel()) {
                                     viewModel.setSelectedCategory(typeId)
                                     currentDestination = ClashDestination.BUILDINGS
                                 },
+                                onScheduleUpgrade = {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    }
+                                    buildingToUpgrade = it
+                                },
+                                onFinishUpgrade = { viewModel.finishActiveUpgrade(it) },
+                                onCancelUpgrade = { viewModel.cancelActiveUpgrade(it) },
                                 onAddBuildingClick = { showAddBuilding = true },
                                 onAddCategoryClick = { showAddType = true }
                             )
@@ -311,6 +338,13 @@ fun ClashApp(viewModel: ClashViewModel = viewModel()) {
                                 onAddBuildingClick = { showAddBuilding = true },
                                 onEditBuildingClick = { buildingToEdit = it },
                                 onDeleteBuildingClick = { itemToDelete = DeleteTarget.Building(it) },
+                                onManageCountsClick = { buildingToManageCount = it },
+                                onScheduleUpgradeClick = {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    }
+                                    buildingToUpgrade = it
+                                },
                                 onIncrementLevel = { viewModel.incrementBuildingLevel(it) },
                                 onDecrementLevel = { viewModel.decrementBuildingLevel(it) }
                             )
@@ -474,11 +508,11 @@ fun ClashApp(viewModel: ClashViewModel = viewModel()) {
     if (showAddType || typeToEdit != null) {
         AddEditBuildingTypeDialog(
             typeToEdit = typeToEdit,
-            onSave = { name, iconKey ->
+            onSave = { name, iconKey, priority ->
                 if (typeToEdit == null) {
-                    viewModel.addBuildingType(name, iconKey)
+                    viewModel.addBuildingType(name, iconKey, priority)
                 } else {
-                    viewModel.updateBuildingType(typeToEdit!!.copy(name = name, iconKey = iconKey))
+                    viewModel.updateBuildingType(typeToEdit!!.copy(name = name, iconKey = iconKey, priority = priority))
                 }
                 showAddType = false
                 typeToEdit = null
@@ -510,6 +544,40 @@ fun ClashApp(viewModel: ClashViewModel = viewModel()) {
                 itemToDelete = null
             },
             onDismiss = { itemToDelete = null }
+        )
+    }
+
+    // Manage Building Instances & Level Distribution Dialog
+    buildingToManageCount?.let { building ->
+        ManageBuildingCountDialog(
+            building = building,
+            onSave = { totalCount, maxLevel, distributions ->
+                viewModel.updateBuildingDistribution(
+                    buildingId = building.id,
+                    totalCount = totalCount,
+                    maxLevel = maxLevel,
+                    distributions = distributions
+                )
+                buildingToManageCount = null
+            },
+            onDismiss = { buildingToManageCount = null }
+        )
+    }
+
+    // Schedule Upgrade Timer Dialog
+    buildingToUpgrade?.let { building ->
+        ScheduleUpgradeDialog(
+            building = building,
+            onSchedule = { fromLevel, toLevel, durationMillis ->
+                viewModel.scheduleUpgrade(
+                    building = building,
+                    fromLevel = fromLevel,
+                    toLevel = toLevel,
+                    durationMillis = durationMillis
+                )
+                buildingToUpgrade = null
+            },
+            onDismiss = { buildingToUpgrade = null }
         )
     }
 }

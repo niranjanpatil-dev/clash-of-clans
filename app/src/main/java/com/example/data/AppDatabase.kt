@@ -12,6 +12,8 @@ import com.example.data.dao.TownHallDao
 import com.example.data.entity.BuildingEntity
 import com.example.data.entity.BuildingTypeEntity
 import com.example.data.entity.SyncRecordEntity
+import com.example.data.dao.ActiveUpgradeDao
+import com.example.data.entity.ActiveUpgradeEntity
 import com.example.data.entity.TownHallEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,9 +24,10 @@ import kotlinx.coroutines.launch
         BuildingTypeEntity::class,
         TownHallEntity::class,
         BuildingEntity::class,
-        SyncRecordEntity::class
+        SyncRecordEntity::class,
+        ActiveUpgradeEntity::class
     ],
-    version = 2,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -32,6 +35,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun townHallDao(): TownHallDao
     abstract fun buildingDao(): BuildingDao
     abstract fun syncRecordDao(): SyncRecordDao
+    abstract fun activeUpgradeDao(): ActiveUpgradeDao
 
     companion object {
         @Volatile
